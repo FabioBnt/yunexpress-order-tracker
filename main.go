@@ -148,13 +148,16 @@ func getAuthToken() string {
 
 	time.Sleep(time.Second * 5)
 
-	resp, err := page.Goto("https://www.yuntrack.com/parcelTracking?id=YT2517400706432402")
-
-	time.Sleep(time.Second * 5)
-
+	_, err = page.Goto("https://www.yuntrack.com/parcelTracking?id=YT2517400706432402",
+		playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateNetworkidle,
+		},
+	)
 	if err != nil {
-		log.Fatalf("could not goto: %v", err)
+		log.Fatalf("Goto failed: %v", err)
 	}
+
+	time.Sleep(10 * time.Second)
 
 	requestData.Timestamp = time.Now().Unix()
 
