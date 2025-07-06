@@ -187,6 +187,8 @@ func fetchWithPlaywright(start int) {
 					} else if trackedEvents[result.TrackInfo.TrackingNumber].ProcessContent != result.TrackInfo.LastTrackEvent.ProcessContent {
 						log.Printf("Status for tracking #%v information found!", result.TrackInfo.TrackingNumber)
 						sendHook(result.TrackInfo.LastTrackEvent, result.TrackInfo.TrackingNumber, true)
+
+						trackedEvents[result.TrackInfo.TrackingNumber] = result.TrackInfo.LastTrackEvent
 					}
 				}
 			}()
