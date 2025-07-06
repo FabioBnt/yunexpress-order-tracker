@@ -7,7 +7,10 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/gtuk/discordwebhook"
+	"github.com/joho/godotenv"
 	"github.com/playwright-community/playwright-go"
 )
 
@@ -27,6 +30,10 @@ type Result struct {
 	ID        string    `json:"Id"`
 	Status    int       `json:"Status"`
 	TrackInfo TrackInfo `json:"TrackInfo"`
+}
+
+type Results struct {
+	Results []Result `json:"ResultList"`
 }
 
 type TrackInfo struct {
@@ -50,9 +57,18 @@ type TrackEvent struct {
 	ProcessContent  string `json:"ProcessContent"`
 }
 
+type TrackedEvents struct {
+	LastTrackedEvent []LastTrackEvent `json:"LastTrackedEvent"`
+}
+
 var proxies []string
 var proxy string
 var requestData Request
+var trackedEvents = make(map[string]LastTrackEvent)
+
+func boolptr(b bool) *bool { return &b }
+
+func strptr(s string) *string { return &s }
 
 func readProxies() {
 	data, err := os.ReadFile("proxies.txt")
@@ -113,7 +129,7 @@ func installPlayright() {
 	}
 }
 
-func fetchWithPlaywright() {
+func fetchWithPlaywright(start int) {
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("Error starting playwright: %v", err)
@@ -148,15 +164,31 @@ func fetchWithPlaywright() {
 					return
 				}
 
-				log.Printf("Raw response body: %s", string(body))
+				// log.Printf("Raw response body: %s", string(body))
 
-				var parsed Result
+				var parsed Results
 				if err := json.Unmarshal(body, &parsed); err != nil {
 					log.Printf("Error parsing response JSON: %v", err)
 					return
 				}
 
-				log.Printf("Parsed tracking info: %+v", parsed)
+				// log.Printf("Parsed tracking info: %+v", parsed)
+
+				for _, result := range parsed.Results {
+					_, ok := trackedEvents[result.TrackInfo.TrackingNumber]
+
+					if !ok {
+						if start == 0 {
+							log.Printf("New tracking information found: %v", result.TrackInfo.TrackingNumber)
+							sendHook(result.TrackInfo.LastTrackEvent, result.TrackInfo.TrackingNumber, false)
+						}
+
+						trackedEvents[result.TrackInfo.TrackingNumber] = result.TrackInfo.LastTrackEvent
+					} else if trackedEvents[result.TrackInfo.TrackingNumber].ProcessContent != result.TrackInfo.LastTrackEvent.ProcessContent {
+						log.Printf("Status for tracking #%v information found!", result.TrackInfo.TrackingNumber)
+						sendHook(result.TrackInfo.LastTrackEvent, result.TrackInfo.TrackingNumber, true)
+					}
+				}
 			}()
 		}
 	})
@@ -171,7 +203,7 @@ func fetchWithPlaywright() {
 	}
 
 	_, err = page.Goto(fmt.Sprintf("https://www.yuntrack.com/parcelTracking?id=%s",
-		requestData.NumberList[0]),
+		strings.Join(requestData.NumberList, ",")),
 		playwright.PageGotoOptions{
 			WaitUntil: playwright.WaitUntilStateNetworkidle,
 		},
@@ -180,24 +212,87 @@ func fetchWithPlaywright() {
 		log.Fatalf("Error navigating to tracking page: %v", err)
 	}
 
-	log.Printf("Tracking page loaded, waiting for API call to be intercepted...")
+	// log.Printf("Tracking page loaded, waiting for API call to be intercepted...")
 
-	if err := browser.Close(); err != nil {
-		log.Fatalf("Error closing browser: %v", err)
+}
+
+func sendHook(event LastTrackEvent, trackingID string, statusChanged bool) {
+	username := "YunExpress Shipping"
+	url := os.Getenv("DISCORD_WEBHOOK_URL")
+	title := trackingID
+	url_title := fmt.Sprintf("https://www.yuntrack.com/parcelTracking?id=%s", trackingID)
+
+	var fields []discordwebhook.Field
+
+	fields = append(fields, discordwebhook.Field{
+		Name:   strptr("Content"),
+		Value:  &event.ProcessContent,
+		Inline: boolptr(false),
+	})
+
+	fields = append(fields, discordwebhook.Field{
+		Name:   strptr("Location"),
+		Value:  &event.ProcessLocation,
+		Inline: boolptr(false),
+	})
+
+	fields = append(fields, discordwebhook.Field{
+		Name:   strptr("Date"),
+		Value:  &event.ProcessDate,
+		Inline: boolptr(false),
+	})
+
+	if statusChanged {
+		fields = append(fields, discordwebhook.Field{
+			Name:   strptr("Type"),
+			Value:  strptr("Status Change"),
+			Inline: boolptr(false),
+		})
+	} else {
+		fields = append(fields, discordwebhook.Field{
+			Name:   strptr("Type"),
+			Value:  strptr("New Tracking Number"),
+			Inline: boolptr(false),
+		})
 	}
 
-	if err := pw.Stop(); err != nil {
-		log.Fatalf("Error stopping Playwright: %v", err)
+	message := discordwebhook.Message{
+		Username: &username,
+		Embeds: &[]discordwebhook.Embed{
+			{
+				Title:  &title,
+				Url:    &url_title,
+				Fields: &fields,
+
+				Color: strptr("15648324"),
+				Author: &discordwebhook.Author{
+					Name: strptr("YunExpress Shipping"),
+				},
+			},
+		},
+	}
+
+	err := discordwebhook.SendMessage(url, message)
+	if err != nil {
+		log.Println(err)
 	}
 }
 
 func main() {
+	var iterations = 1
+	err := godotenv.Load(".env.local")
+	if err != nil {
+		log.Fatalf("Error loading .env.local: %v", err)
+	}
+
 	installPlayright()
 	readProxies()
 	readTrackingNumbers()
 
-	for {
+	for iterations >= 0 {
 		rotateProxies()
-		fetchWithPlaywright()
+		fetchWithPlaywright(iterations)
+		time.Sleep(500 * time.Second)
+		iterations = 1
 	}
 }
