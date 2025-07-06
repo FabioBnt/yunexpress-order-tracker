@@ -121,6 +121,9 @@ func fetchWithPlaywright() {
 
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
+		Proxy: &playwright.Proxy{
+			Server: proxy,
+		},
 	})
 	if err != nil {
 		log.Fatalf("Error launching browser: %v", err)
@@ -191,7 +194,10 @@ func fetchWithPlaywright() {
 func main() {
 	installPlayright()
 	readProxies()
-	rotateProxies()
 	readTrackingNumbers()
-	fetchWithPlaywright()
+
+	for {
+		rotateProxies()
+		fetchWithPlaywright()
+	}
 }
