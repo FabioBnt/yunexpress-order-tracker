@@ -1,18 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/playwright-community/playwright-go"
 )
@@ -66,8 +60,8 @@ func readProxies() {
 		log.Printf("Error loading proxies: %v", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -111,172 +105,93 @@ func readTrackingNumbers() {
 	}
 }
 
-func getAuthToken() string {
+func installPlayright() {
+	err := playwright.Install()
+
+	if err != nil {
+		log.Fatalf("Error installing Playright driver: %v", err)
+	}
+}
+
+func fetchWithPlaywright() {
 	pw, err := playwright.Run()
 	if err != nil {
-		log.Fatalf("could not start playwright: %v", err)
+		log.Fatalf("Error starting playwright: %v", err)
 	}
+
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(false),
+		Headless: playwright.Bool(true),
 	})
 	if err != nil {
-		log.Fatalf("could not launch browser: %v", err)
+		log.Fatalf("Error launching browser: %v", err)
 	}
+
 	page, err := browser.NewPage()
 	if err != nil {
-		log.Fatalf("could not create page: %v", err)
+		log.Fatalf("Error creating page: %v", err)
 	}
 
-	page.On("request", func(request playwright.Request) {
-		if request.Method() == "POST" {
-			headers, err := request.AllHeaders()
-			if err != nil {
-				fmt.Printf("Could not get headers: %v\n", err)
-				return
-			}
+	page.SetViewportSize(1920, 1080)
 
-			fmt.Println("Request Headers:")
-			for k, v := range headers {
-				fmt.Printf("%s: %s\n", k, v)
-			}
+	page.On("response", func(response playwright.Response) {
+		url := response.URL()
+		if strings.Contains(url, "services.yuntrack.com/Track/Query") {
+			log.Printf("[+] Intercepted API response: %s", url)
 
-			postData, _ := request.PostData()
-			fmt.Printf("Intercepted POST request to %s\n", request.URL())
-			fmt.Printf("Body: %s\n", postData)
+			go func() {
+				body, err := response.Body()
+				if err != nil {
+					log.Printf("Error reading response body: %v", err)
+					return
+				}
+
+				log.Printf("Raw response body: %s", string(body))
+
+				var parsed Result
+				if err := json.Unmarshal(body, &parsed); err != nil {
+					log.Printf("Error parsing response JSON: %v", err)
+					return
+				}
+
+				log.Printf("Parsed tracking info: %+v", parsed)
+			}()
 		}
 	})
 
-	time.Sleep(time.Second * 5)
-
-	_, err = page.Goto("https://www.yuntrack.com/parcelTracking?id=YT2517400706432402",
+	_, err = page.Goto("https://www.yuntrack.com/",
 		playwright.PageGotoOptions{
 			WaitUntil: playwright.WaitUntilStateNetworkidle,
 		},
 	)
 	if err != nil {
-		log.Fatalf("Goto failed: %v", err)
+		log.Fatalf("Error navigating to main page: %v", err)
 	}
 
-	time.Sleep(10 * time.Second)
-
-	requestData.Timestamp = time.Now().Unix()
-
-	allH, err := resp.AllHeaders()
-
-	fmt.Println(allH)
-
+	_, err = page.Goto(fmt.Sprintf("https://www.yuntrack.com/parcelTracking?id=%s",
+		requestData.NumberList[0]),
+		playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateNetworkidle,
+		},
+	)
 	if err != nil {
-		log.Fatalf("could not get header: %v", err)
+		log.Fatalf("Error navigating to tracking page: %v", err)
 	}
 
-	for name, value := range allH {
-		if name == "Timestamp" {
-			num, err := strconv.ParseInt(value, 10, 64)
-			if err != nil {
-				log.Fatalf("could not convert: %v", err)
-			}
-			requestData.Timestamp = num
-			fmt.Print(num)
-		}
+	log.Printf("Tracking page loaded, waiting for API call to be intercepted...")
+
+	if err := browser.Close(); err != nil {
+		log.Fatalf("Error closing browser: %v", err)
 	}
 
-	time.Sleep(time.Second * 10)
-
-	cookies, err := page.Context().Cookies()
-	if err != nil {
-		log.Fatalf("could not get cookies: %v", err)
+	if err := pw.Stop(); err != nil {
+		log.Fatalf("Error stopping Playwright: %v", err)
 	}
-
-	for _, cookie := range cookies {
-		if cookie.Name == "acw_tc" {
-			fmt.Printf("Found cookie: %s = %s\n", cookie.Name, cookie.Value)
-			if err = browser.Close(); err != nil {
-				log.Fatalf("could not close browser: %v", err)
-			}
-			if err = pw.Stop(); err != nil {
-				log.Fatalf("could not stop Playwright: %v", err)
-			}
-			return cookie.Value
-		}
-	}
-
-	if err = browser.Close(); err != nil {
-		log.Fatalf("could not close browser: %v", err)
-	}
-	if err = pw.Stop(); err != nil {
-		log.Fatalf("could not stop Playwright: %v", err)
-	}
-
-	return "none"
-}
-
-func fetch(auth_token string) {
-	proxyURL, err := url.Parse(proxy)
-	if err != nil {
-		log.Printf("Error parsing proxy URL: %v", err)
-		return
-	}
-
-	transport := &http.Transport{
-		Proxy: http.ProxyURL(proxyURL),
-	}
-
-	client := &http.Client{
-		Transport: transport,
-	}
-
-	requestData.CaptchaVerification = ""
-	requestData.Year = 0
-	requestData.Signature = auth_token
-
-	jsonData, err := json.Marshal(requestData)
-	if err != nil {
-		log.Printf("Error marshaling request data: %v", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", "https://services.yuntrack.com/Track/Query", bytes.NewBuffer(jsonData))
-	if err != nil {
-		log.Printf("Error creating request: %v", err)
-		return
-	}
-
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "https://www.yuntrack.com")
-	req.Header.Set("Referer", "https://www.yuntrack.com")
-	//req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Error making POST request: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Error reading response body: %v", err)
-		return
-	}
-
-	log.Printf("%s", responseBody)
-
-	var response Result
-	err = json.Unmarshal(responseBody, &response)
-	if err != nil {
-		log.Printf("Error unmarshaling response body: %v", err)
-		return
-	}
-
-	log.Printf("%v", response.TrackInfo.CustomerOrderNumber)
 }
 
 func main() {
+	installPlayright()
 	readProxies()
 	rotateProxies()
 	readTrackingNumbers()
-	auth_token := getAuthToken()
-	fmt.Print(auth_token)
-	fetch(auth_token)
+	fetchWithPlaywright()
 }
