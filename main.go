@@ -136,7 +136,7 @@ func fetchWithPlaywright(start int) {
 	}
 
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
+		Headless: playwright.Bool(false),
 		Proxy: &playwright.Proxy{
 			Server: proxy,
 		},
@@ -164,15 +164,11 @@ func fetchWithPlaywright(start int) {
 					return
 				}
 
-				// log.Printf("Raw response body: %s", string(body))
-
 				var parsed Results
 				if err := json.Unmarshal(body, &parsed); err != nil {
 					log.Printf("Error parsing response JSON: %v", err)
 					return
 				}
-
-				// log.Printf("Parsed tracking info: %+v", parsed)
 
 				for _, result := range parsed.Results {
 					_, ok := trackedEvents[result.TrackInfo.TrackingNumber]
@@ -213,8 +209,6 @@ func fetchWithPlaywright(start int) {
 	if err != nil {
 		log.Fatalf("Error navigating to tracking page: %v", err)
 	}
-
-	// log.Printf("Tracking page loaded, waiting for API call to be intercepted...")
 
 }
 
