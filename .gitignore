@@ -1,0 +1,22 @@
+# Binaries
+/bin/
+/dist/
+/build/
+
+# Local data files
+proxies.txt
+tracking-numbers.txt
+
+# Env and secrets
+.env
+*.key
+*.pem
+
+# Logs and coverage
+*.log
+coverage*.out
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
