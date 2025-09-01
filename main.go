@@ -115,15 +115,15 @@ func readProxies() {
 			log.Printf("Skipping invalid proxy: %v", err)
 			continue
 		}
-		
+
 		// Parse URL to safely log only scheme and host
 		if u, err := url.Parse(proxyURL); err == nil {
 			log.Printf("Loaded proxy: %s://%s", u.Scheme, u.Host)
 		}
-		
+
 		proxies = append(proxies, proxyURL)
 	}
-	
+
 	if len(proxies) == 0 {
 		log.Printf("Warning: No valid proxies loaded")
 	} else {
@@ -137,10 +137,10 @@ func rotateProxies() {
 		proxy = ""
 		return
 	}
-	
+
 	var index = rand.Intn(len(proxies))
 	proxy = proxies[index]
-	
+
 	// Log safely without exposing credentials
 	if u, err := url.Parse(proxy); err == nil {
 		log.Printf("Using proxy: %s://%s", u.Scheme, u.Host)
@@ -155,7 +155,7 @@ func readTrackingNumbers() {
 	}
 
 	requestData.NumberList = numbers
-	
+
 	if len(numbers) == 0 {
 		log.Printf("Warning: No valid tracking numbers loaded")
 	} else {
@@ -185,7 +185,7 @@ func fetchWithPlaywright(start int) {
 
 	var browserOpts playwright.BrowserTypeLaunchOptions
 	browserOpts.Headless = playwright.Bool(false)
-	
+
 	// Only set proxy if we have one
 	if proxy != "" {
 		browserOpts.Proxy = &playwright.Proxy{
@@ -361,10 +361,10 @@ func main() {
 
 	for iterations >= 0 {
 		log.Printf("Starting tracking iteration %d", iterations)
-		
+
 		rotateProxies()
 		fetchWithPlaywright(iterations)
-		
+
 		if iterations > 0 {
 			log.Printf("Waiting for next iteration...")
 			<-ticker.C

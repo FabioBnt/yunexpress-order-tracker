@@ -2,6 +2,7 @@
 /bin/
 /dist/
 /build/
+yunexpress-order-checker
 
 # Local data files
 proxies.txt
@@ -9,6 +10,7 @@ tracking-numbers.txt
 
 # Env and secrets
 .env
+.env.local
 *.key
 *.pem
 
